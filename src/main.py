@@ -12,11 +12,25 @@ class GoBoard:
     def is_valid_move(self, row, col, player):
         if self.board[row][col] != 0:
             return False
-        # 临时放置棋子检查自杀规则
+        # 保存原始棋盘状态
+        original_board = [row.copy() for row in self.board]
+        # 临时放置棋子
         self.board[row][col] = player
-        valid = self.check_liberty(row, col, player)
-        self.board[row][col] = 0
-        return valid
+        # 找到对手的死子
+        opponent = 3 - player
+        dead_stones = []
+        for r in range(self.size):
+            for c in range(self.size):
+                if self.board[r][c] == opponent and not self.check_liberty(r, c, opponent):
+                    dead_stones.append((r, c))
+        # 移除对手的死子
+        for (r, c) in dead_stones:
+            self.board[r][c] = 0
+        # 检查当前棋子的块是否有气
+        has_liberty = self.check_liberty(row, col, player)
+        # 恢复棋盘状态
+        self.board = original_board
+        return has_liberty
 
     def check_liberty(self, row, col, player):
         visited = set()
@@ -49,9 +63,8 @@ class GoBoard:
         to_remove = []
         for r in range(self.size):
             for c in range(self.size):
-                if self.board[r][c] == player:
-                    if not self.check_liberty(r, c, player):
-                        to_remove.append((r, c))
+                if self.board[r][c] == player and not self.check_liberty(r, c, player):
+                    to_remove.append((r, c))
         for r, c in to_remove:
             self.board[r][c] = 0
             self.captured['black' if player == 1 else 'white'] += 1
@@ -97,7 +110,7 @@ class GoGame:
         self.board_size = size          # 棋盘逻辑大小为 size x size
         self.cell_size = 50
         # 显示区域：去掉最右侧和最下侧的一行/列
-        self.display_count = self.board_size - 1  
+        self.display_count = self.board_size - 1
         self.window_size = self.board_size * self.cell_size + 100
         self.screen = pygame.display.set_mode((self.window_size, self.window_size))
         self.clock = pygame.time.Clock()
@@ -123,20 +136,18 @@ class GoGame:
         pygame.draw.line(self.screen, (0, 0, 0), (start, end), (end, end), 2)
 
         # 绘制天元和星位（仅在显示区域内绘制）
-        # 对于 19x19 棋盘（0索引）：星位坐标为 (3,3), (3,9), (3,15), (9,3), (9,9), (9,15), (15,3), (15,9), (15,15)
         star_points = [(3,3), (3,9), (3,15), (9,3), (9,9), (9,15), (15,3), (15,9), (15,15)]
         for r, c in star_points:
             if r < self.display_count and c < self.display_count:
                 pos = (c * self.cell_size + start, r * self.cell_size + start)
-                # 天元(中心)用较大圆点标记，其余用较小圆点
                 if (r, c) == (9, 9):
                     pygame.draw.circle(self.screen, (0, 0, 0), pos, 8)
                 else:
                     pygame.draw.circle(self.screen, (0, 0, 0), pos, 5)
 
         # 绘制棋子，仅绘制显示区域内的棋子
-        for r in range(self.display_count):
-            for c in range(self.display_count):
+        for r in range(self.display_count + 1):
+            for c in range(self.display_count + 1):
                 if self.go_board.board[r][c] != 0:
                     color = (0, 0, 0) if self.go_board.board[r][c] == 1 else (255, 255, 255)
                     pos = (c * self.cell_size + start, r * self.cell_size + start)
@@ -158,8 +169,8 @@ class GoGame:
         board_width = self.display_count * self.cell_size
         if x < start or x >= start + board_width or y < start or y >= start + board_width:
             return False
-        col = (x - start) // self.cell_size
-        row = (y - start) // self.cell_size
+        col = round((x) // self.cell_size)
+        row = round((y) // self.cell_size)
         return self.go_board.place_stone(int(row), int(col), self.go_board.current_player)
 
     def show_result(self):
