@@ -167,7 +167,8 @@ class GoGame:
         x, y = pos
         start = self.cell_size // 2
         board_width = self.display_count * self.cell_size
-        if x < start or x >= start + board_width or y < start or y >= start + board_width:
+        edge_margin = self.cell_size // 3
+        if x < start - edge_margin or x >= start + board_width + edge_margin or y < start - edge_margin or y >= start + board_width + edge_margin:
             return False
         col = round((x) // self.cell_size)
         row = round((y) // self.cell_size)
