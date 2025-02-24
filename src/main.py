@@ -7,10 +7,13 @@ class GoBoard:
         self.board = [[0]*self.size for _ in range(self.size)]  # 0空 1黑 2白
         self.captured = {'black': 0, 'white': 0}
         self.current_player = 1  # 黑棋先行
-        self.last_move = None  # 用于劫争检测
+        self.last_moves = {1: None, 2: None}  # 分别记录黑棋和白棋的上次落子位置
 
     def is_valid_move(self, row, col, player):
         if self.board[row][col] != 0:
+            return False
+        # 检查是否与当前玩家上次落子位置相同
+        if (row, col) == self.last_moves[player]:
             return False
         # 保存原始棋盘状态
         original_board = [row.copy() for row in self.board]
@@ -55,7 +58,7 @@ class GoBoard:
             return False
         self.board[row][col] = player
         self.remove_dead_stones(3 - player)  # 检查对手棋子
-        self.last_move = (row, col)
+        self.last_moves[player] = (row, col)  # 更新当前玩家的上次落子位置
         self.current_player = 3 - player  # 切换玩家
         return True
 
