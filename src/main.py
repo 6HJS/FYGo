@@ -164,7 +164,15 @@ class GoGame:
                         continue
                     x = c * self.cell_size + start
                     y = r * self.cell_size + start
-                    text = self.influence_font.render(str(value), True, (255, 0, 0))
+                    if value > 0:
+                        # 正数势力：黑色背景，白色文字
+                        text_color = (255, 255, 255)
+                        bg_color = (0, 0, 0)
+                    else:
+                        # 负数势力：白色背景，黑色文字
+                        text_color = (0, 0, 0)
+                        bg_color = (255, 255, 255)
+                    text = self.influence_font.render(str(value), True, text_color, bg_color)
                     text_rect = text.get_rect(center=(x, y))
                     self.screen.blit(text, text_rect)
 
