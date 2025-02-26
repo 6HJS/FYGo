@@ -38,7 +38,6 @@ class GoBoard:
         self.influence_cache = [[int(round(val)) for val in row] for row in influence]
         return self.influence_cache
 
-    # 以下原有方法保持不变...
     def is_valid_move(self, row, col, player):
         if self.board[row][col] != 0:
             return False
@@ -125,6 +124,7 @@ class GoGame:
     def draw_board(self):
         self.screen.fill((220, 179, 92))
         start = self.cell_size // 2
+        edge_margin = self.cell_size // 3
         end = self.display_count * self.cell_size + start
 
         # 绘制网格线
@@ -175,6 +175,22 @@ class GoGame:
                     text = self.influence_font.render(str(value), True, text_color, bg_color)
                     text_rect = text.get_rect(center=(x, y))
                     self.screen.blit(text, text_rect)
+
+        # 绘制预览棋子（跟随光标，半透明）
+        mouse_pos = pygame.mouse.get_pos()
+        x, y = mouse_pos
+        if (x >= start - edge_margin and x < start + self.display_count * self.cell_size + edge_margin and
+            y >= start - edge_margin and y < start + self.display_count * self.cell_size + edge_margin):
+            col = round((x - start) / self.cell_size)
+            row = round((y - start) / self.cell_size)
+            # 仅在该位置为空时显示预览棋子
+            if self.go_board.board[row][col] == 0:
+                pos = (col * self.cell_size + start, row * self.cell_size + start)
+                # 根据当前玩家确定预览棋子的颜色及透明度（128表示50%透明）
+                preview_color = (0, 0, 0, 128) if self.go_board.current_player == 1 else (255, 255, 255, 128)
+                preview_surf = pygame.Surface((self.cell_size, self.cell_size), pygame.SRCALPHA)
+                pygame.draw.circle(preview_surf, preview_color, (self.cell_size // 2, self.cell_size // 2), self.cell_size // 3)
+                self.screen.blit(preview_surf, (pos[0] - self.cell_size // 2, pos[1] - self.cell_size // 2))
 
         # 显示状态信息
         status_text = self.font.render(
