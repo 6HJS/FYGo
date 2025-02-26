@@ -11,6 +11,23 @@ class GoBoard:
         self.influence_cache = None  # 势力值缓存
         self.base_power = 64  # 势力基础值（可调整）
 
+    def get_snapshot(self):
+        """获取当前状态的快照，用于悔棋/撤销悔棋"""
+        return {
+            'board': [row.copy() for row in self.board],
+            'captured': self.captured.copy(),
+            'current_player': self.current_player,
+            'last_moves': self.last_moves.copy(),
+        }
+
+    def set_snapshot(self, snapshot):
+        """设置状态为某个快照的内容"""
+        self.board = [row.copy() for row in snapshot['board']]
+        self.captured = snapshot['captured'].copy()
+        self.current_player = snapshot['current_player']
+        self.last_moves = snapshot['last_moves'].copy()
+        self.influence_cache = None
+
     def calculate_influence(self):
         """计算每个格子的势力值（带缓存机制，指数衰减）"""
         if self.influence_cache is not None:
@@ -121,6 +138,10 @@ class GoGame:
         self.running = True
         self.show_influence = False  # 显示势力值开关
 
+        # 保存棋局状态的历史记录，初始状态作为第一个快照
+        self.history = [self.go_board.get_snapshot()]
+        self.redo_stack = []
+
     def draw_board(self):
         self.screen.fill((220, 179, 92))
         start = self.cell_size // 2
@@ -165,11 +186,9 @@ class GoGame:
                     x = c * self.cell_size + start
                     y = r * self.cell_size + start
                     if value > 0:
-                        # 正数势力：黑色背景，白色文字
                         text_color = (255, 255, 255)
                         bg_color = (0, 0, 0)
                     else:
-                        # 负数势力：白色背景，黑色文字
                         text_color = (0, 0, 0)
                         bg_color = (255, 255, 255)
                     text = self.influence_font.render(str(value), True, text_color, bg_color)
@@ -183,36 +202,54 @@ class GoGame:
             y >= start - edge_margin and y < start + self.display_count * self.cell_size + edge_margin):
             col = round((x - start) / self.cell_size)
             row = round((y - start) / self.cell_size)
-            # 仅在该位置为空时显示预览棋子
             if self.go_board.board[row][col] == 0:
                 pos = (col * self.cell_size + start, row * self.cell_size + start)
-                # 根据当前玩家确定预览棋子的颜色及透明度（128表示50%透明）
                 preview_color = (0, 0, 0, 128) if self.go_board.current_player == 1 else (255, 255, 255, 128)
                 preview_surf = pygame.Surface((self.cell_size, self.cell_size), pygame.SRCALPHA)
                 pygame.draw.circle(preview_surf, preview_color, (self.cell_size // 2, self.cell_size // 2), self.cell_size // 3)
                 self.screen.blit(preview_surf, (pos[0] - self.cell_size // 2, pos[1] - self.cell_size // 2))
 
-        # 显示状态信息
+        # 显示状态信息和提示
         status_text = self.font.render(
             f"Black Captured: {self.go_board.captured['black']}  "
             f"White Captured: {self.go_board.captured['white']}  "
             f"Current: {'Black' if self.go_board.current_player == 1 else 'White'}",
             True, (0, 0, 0))
         self.screen.blit(status_text, (20, self.window_size - 80))
-        hint_text = self.font.render("Right click to pass | SPACE: Influence | ESC to exit", True, (0, 0, 0))
+        hint_text = self.font.render("Right click: pass | SPACE: Influence | ESC: exit | Ctrl+Z: Undo | Ctrl+Y: Redo", True, (0, 0, 0))
         self.screen.blit(hint_text, (20, self.window_size - 40))
 
     def handle_click(self, pos):
         x, y = pos
         start = self.cell_size // 2
         edge_margin = self.cell_size // 3
-        if x < start - edge_margin or x >= start + (self.display_count) * self.cell_size + edge_margin \
-            or y < start - edge_margin or y >= start + (self.display_count) * self.cell_size + edge_margin:
+        if x < start - edge_margin or x >= start + self.display_count * self.cell_size + edge_margin \
+           or y < start - edge_margin or y >= start + self.display_count * self.cell_size + edge_margin:
             return False
         
         col = round((x - start) / self.cell_size)
         row = round((y - start) / self.cell_size)
-        return self.go_board.place_stone(int(row), int(col), self.go_board.current_player)
+        if self.go_board.place_stone(int(row), int(col), self.go_board.current_player):
+            # 落子成功后保存新状态，并清空 redo 记录
+            self.history.append(self.go_board.get_snapshot())
+            self.redo_stack = []
+            return True
+        return False
+
+    def undo_move(self):
+        """按 Ctrl+Z 撤销一步棋（悔棋）"""
+        if len(self.history) > 1:
+            snapshot = self.history.pop()  # 移除当前状态
+            self.redo_stack.append(snapshot)
+            last_snapshot = self.history[-1]
+            self.go_board.set_snapshot(last_snapshot)
+
+    def redo_move(self):
+        """按 Ctrl+Y 撤销悔棋"""
+        if self.redo_stack:
+            snapshot = self.redo_stack.pop()
+            self.history.append(snapshot)
+            self.go_board.set_snapshot(snapshot)
 
     def run(self):
         while self.running:
@@ -223,12 +260,20 @@ class GoGame:
                     if event.button == 1:
                         self.handle_click(event.pos)
                     elif event.button == 3:
+                        # 右键传子：切换当前玩家并记录状态
                         self.go_board.current_player = 3 - self.go_board.current_player
+                        self.history.append(self.go_board.get_snapshot())
+                        self.redo_stack = []
                 if event.type == pygame.KEYDOWN:
+                    mods = pygame.key.get_mods()
                     if event.key == pygame.K_ESCAPE:
                         self.running = False
                     elif event.key == pygame.K_SPACE:
                         self.show_influence = not self.show_influence
+                    elif event.key == pygame.K_z and (mods & pygame.KMOD_CTRL):
+                        self.undo_move()
+                    elif event.key == pygame.K_y and (mods & pygame.KMOD_CTRL):
+                        self.redo_move()
             
             self.draw_board()
             pygame.display.flip()
