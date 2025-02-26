@@ -4,12 +4,13 @@ import sys
 class GoBoard:
     def __init__(self, size=19):
         self.size = size
-        self.board = [[0]*self.size for _ in range(self.size)]  # 0空 1黑 2白
+        self.board = [[0] * self.size for _ in range(self.size)]  # 0空 1黑 2白
         self.captured = {'black': 0, 'white': 0}
         self.current_player = 1
         self.last_moves = {1: None, 2: None}
         self.influence_cache = None  # 势力值缓存
         self.base_power = 64  # 势力基础值（可调整）
+        self.move_order = []  # 记录每步落子：(row, col, player)
 
     def get_snapshot(self):
         """获取当前状态的快照，用于悔棋/撤销悔棋"""
@@ -18,6 +19,7 @@ class GoBoard:
             'captured': self.captured.copy(),
             'current_player': self.current_player,
             'last_moves': self.last_moves.copy(),
+            'move_order': self.move_order.copy(),
         }
 
     def set_snapshot(self, snapshot):
@@ -26,6 +28,7 @@ class GoBoard:
         self.captured = snapshot['captured'].copy()
         self.current_player = snapshot['current_player']
         self.last_moves = snapshot['last_moves'].copy()
+        self.move_order = snapshot['move_order'].copy()
         self.influence_cache = None
 
     def calculate_influence(self):
@@ -106,6 +109,8 @@ class GoBoard:
         self.board[row][col] = player
         self.remove_dead_stones(3 - player)
         self.last_moves[player] = (row, col)
+        # 直接追加记录，不删除原记录，即使在同一位置也保留原来的编号
+        self.move_order.append((row, col, player))
         self.current_player = 3 - player
         self.influence_cache = None  # 清空缓存
         return True
@@ -134,6 +139,9 @@ class GoGame:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont('arial', 24)
         self.influence_font = pygame.font.SysFont('arial', 16)  # 势力值专用字体
+        # 用于落子顺序的普通字体和粗体红字字体
+        self.order_font = pygame.font.SysFont('arial', 16)
+        self.order_last_font = pygame.font.SysFont('arial', 16, bold=True)
         self.go_board = GoBoard(size)
         self.running = True
         self.show_influence = False  # 显示势力值开关
@@ -155,16 +163,16 @@ class GoGame:
             pygame.draw.line(self.screen, (0, 0, 0), (offset, start), (offset, end), 2)
 
         # 绘制边框
-        pygame.draw.line(self.screen, (0, 0, 0), (start, start-1), (start, end+1), 5)
-        pygame.draw.line(self.screen, (0, 0, 0), (start-1, start), (end+1, start), 5)
-        pygame.draw.line(self.screen, (0, 0, 0), (end, start-1), (end, end+1), 5)
-        pygame.draw.line(self.screen, (0, 0, 0), (start-1, end), (end+1, end), 5)
+        pygame.draw.line(self.screen, (0, 0, 0), (start, start - 1), (start, end + 1), 5)
+        pygame.draw.line(self.screen, (0, 0, 0), (start - 1, start), (end + 1, start), 5)
+        pygame.draw.line(self.screen, (0, 0, 0), (end, start - 1), (end, end + 1), 5)
+        pygame.draw.line(self.screen, (0, 0, 0), (start - 1, end), (end + 1, end), 5)
 
         # 绘制星位
-        star_points = [(3,3), (3,9), (3,15), (9,3), (9,9), (9,15), (15,3), (15,9), (15,15)]
+        star_points = [(3, 3), (3, 9), (3, 15), (9, 3), (9, 9), (9, 15), (15, 3), (15, 9), (15, 15)]
         for r, c in star_points:
             if r < self.display_count and c < self.display_count:
-                pos = (c * self.cell_size + start, r * self.cell_size + start)
+                pos = (c * self.cell_size + start + 1, r * self.cell_size + start + 1)
                 pygame.draw.circle(self.screen, (0, 0, 0), pos, 5)
 
         # 绘制棋子
@@ -209,6 +217,35 @@ class GoGame:
                 pygame.draw.circle(preview_surf, preview_color, (self.cell_size // 2, self.cell_size // 2), self.cell_size // 3)
                 self.screen.blit(preview_surf, (pos[0] - self.cell_size // 2, pos[1] - self.cell_size // 2))
 
+        # 如果按住 Tab 键，显示落子顺序（黑子上白字，白子上黑字，最后一步用粗体红字）
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_TAB]:
+            # 构建字典：每个位置最新记录的索引（0-based）
+            latest_by_coord = {}
+            for i, (r, c, player) in enumerate(self.go_board.move_order):
+                latest_by_coord[(r, c)] = i
+
+            # 筛选出符合条件的记录：棋盘上该位置的棋子与记录玩家一致，并且该记录为该位置最新记录
+            qualifying_indices = []
+            for i, (r, c, player) in enumerate(self.go_board.move_order):
+                if self.go_board.board[r][c] == player and latest_by_coord.get((r, c)) == i:
+                    qualifying_indices.append(i)
+            last_move_index = max(qualifying_indices) if qualifying_indices else None
+
+            # 绘制每条符合条件的记录，使用原始序号（i+1）
+            for i, (r, c, player) in enumerate(self.go_board.move_order):
+                if self.go_board.board[r][c] == player and latest_by_coord.get((r, c)) == i:
+                    pos = (c * self.cell_size + start, r * self.cell_size + start)
+                    if i == last_move_index:
+                        font = self.order_last_font
+                        text_color = (255, 0, 0)
+                    else:
+                        font = self.order_font
+                        text_color = (255, 255, 255) if player == 1 else (0, 0, 0)
+                    order_text = font.render(str(i + 1), True, text_color)
+                    order_rect = order_text.get_rect(center=pos)
+                    self.screen.blit(order_text, order_rect)
+
         # 显示状态信息和提示
         status_text = self.font.render(
             f"Black Captured: {self.go_board.captured['black']}  "
@@ -216,7 +253,7 @@ class GoGame:
             f"Current: {'Black' if self.go_board.current_player == 1 else 'White'}",
             True, (0, 0, 0))
         self.screen.blit(status_text, (20, self.window_size - 80))
-        hint_text = self.font.render("Right click: pass | SPACE: Influence | ESC: exit | Ctrl+Z: Undo | Ctrl+Y: Redo", True, (0, 0, 0))
+        hint_text = self.font.render("Right click: pass | SPACE: Influence | ESC: exit | Ctrl+Z: Undo | Ctrl+Y: Redo | Hold TAB: Move Order", True, (0, 0, 0))
         self.screen.blit(hint_text, (20, self.window_size - 40))
 
     def handle_click(self, pos):
