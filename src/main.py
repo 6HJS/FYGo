@@ -9,13 +9,14 @@ class GoBoard:
         self.current_player = 1
         self.last_moves = {1: None, 2: None}
         self.influence_cache = None  # 势力值缓存
+        self.base_power = 64  # 势力基础值（可调整）
 
     def calculate_influence(self):
-        """计算每个格子的势力值（带缓存机制）"""
+        """计算每个格子的势力值（带缓存机制，指数衰减）"""
         if self.influence_cache is not None:
             return self.influence_cache
             
-        influence = [[0 for _ in range(self.size)] for _ in range(self.size)]
+        influence = [[0.0 for _ in range(self.size)] for _ in range(self.size)]
         
         for r in range(self.size):
             for c in range(self.size):
@@ -23,20 +24,21 @@ class GoBoard:
                 if stone == 0:
                     continue
                 
-                # 确定基础值
-                base = 19 if stone == 1 else -19
+                # 确定基础值（正负区分颜色）
+                base = self.base_power if stone == 1 else -self.base_power
                 
-                # 遍历所有可能受影响的格子
+                # 遍历所有格子计算影响
                 for i in range(self.size):
                     for j in range(self.size):
                         distance = abs(r - i) + abs(c - j)
-                        if distance < 19:
-                            contribution = (base - distance) if stone == 1 else (base + distance)
-                            influence[i][j] += contribution
+                        contribution = base * (0.5 ** distance)
+                        influence[i][j] += contribution
         
-        self.influence_cache = influence
-        return influence
+        # 四舍五入为整数并缓存结果
+        self.influence_cache = [[int(round(val)) for val in row] for row in influence]
+        return self.influence_cache
 
+    # 以下原有方法保持不变...
     def is_valid_move(self, row, col, player):
         if self.board[row][col] != 0:
             return False
@@ -105,13 +107,11 @@ class GoBoard:
         
         self.influence_cache = None  # 清空缓存
 
-    # 其他原有方法保持不变...
-
 class GoGame:
     def __init__(self, size=19):
         pygame.init()
         self.board_size = size
-        self.cell_size = 50
+        self.cell_size = 40
         self.display_count = self.board_size - 1
         self.window_size = self.board_size * self.cell_size + 100
         self.screen = pygame.display.set_mode((self.window_size, self.window_size))
@@ -134,10 +134,10 @@ class GoGame:
             pygame.draw.line(self.screen, (0, 0, 0), (offset, start), (offset, end), 2)
 
         # 绘制边框
-        pygame.draw.line(self.screen, (0, 0, 0), (start, start), (start, end), 2)
-        pygame.draw.line(self.screen, (0, 0, 0), (start, start), (end, start), 2)
-        pygame.draw.line(self.screen, (0, 0, 0), (end, start), (end, end), 2)
-        pygame.draw.line(self.screen, (0, 0, 0), (start, end), (end, end), 2)
+        pygame.draw.line(self.screen, (0, 0, 0), (start, start-1), (start, end+1), 5)
+        pygame.draw.line(self.screen, (0, 0, 0), (start-1, start), (end+1, start), 5)
+        pygame.draw.line(self.screen, (0, 0, 0), (end, start-1), (end, end+1), 5)
+        pygame.draw.line(self.screen, (0, 0, 0), (start-1, end), (end+1, end), 5)
 
         # 绘制星位
         star_points = [(3,3), (3,9), (3,15), (9,3), (9,9), (9,15), (15,3), (15,9), (15,15)]
