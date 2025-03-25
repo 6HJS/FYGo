@@ -143,7 +143,9 @@ class GoGame:
         
         self.cell_size = 40
         self.window_size = self.bg_surface.get_size()
-        self.screen = pygame.display.set_mode(self.window_size)
+        self.screen = pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
+        self.base_surface = pygame.Surface(self.window_size)  # 原始画布，用于绘图再缩放
+        pygame.display.set_caption("FYGo")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont('pingfang', 24)
         self.influence_font = pygame.font.SysFont('pingfang', 16)
@@ -209,26 +211,62 @@ class GoGame:
         return nearest
 
     def draw_board(self):
-        self.screen.blit(self.bg_surface, (0, 0))
+        self.base_surface.blit(self.bg_surface, (0, 0))
         
         for point in self.valid_points:
             x, y, i, j = point
             stone = self.go_board.board[i][j]
             if stone != 0:
-                color = (0, 0, 0) if stone == 1 else (255, 255, 255)
-                pygame.draw.circle(self.screen, color, (x, y), self.cell_size//3)
+                if stone == 1:  # 黑棋
+                    color = (0, 0, 0)
+                    pygame.draw.circle(self.base_surface, color, (x, y), self.cell_size//3)
+                else:  # 白棋带深灰色边缘
+                    edge_color = (100, 100, 100)
+                    inner_color = (255, 255, 255)
+                    pygame.draw.circle(self.base_surface, edge_color, (x, y), self.cell_size//3 + 2)
+                    pygame.draw.circle(self.base_surface, inner_color, (x, y), self.cell_size//3)
 
-        mouse_pos = pygame.mouse.get_pos()
-        nearest = self.find_nearest_point(mouse_pos)
+
+        # 获取鼠标在窗口中的位置
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+
+        # 获取窗口和原始画布的尺寸
+        win_w, win_h = self.screen.get_size()
+        base_w, base_h = self.base_surface.get_size()
+
+        # 将鼠标坐标映射回未缩放的原始画布坐标
+        scale_x = base_w / win_w
+        scale_y = base_h / win_h
+        scaled_mouse_pos = (int(mouse_x * scale_x), int(mouse_y * scale_y))
+
+        nearest = self.find_nearest_point(scaled_mouse_pos)
         if nearest:
             i, j = nearest
             if self.go_board.board[i][j] == 0:
                 x = self.offset[0] + j * self.cell_size
                 y = self.offset[1] + i * self.cell_size
-                preview_color = (0, 0, 0, 128) if self.go_board.current_player == 1 else (255, 255, 255, 128)
+                
+                # 创建透明表面用于预览
                 preview_surf = pygame.Surface((self.cell_size, self.cell_size), pygame.SRCALPHA)
-                pygame.draw.circle(preview_surf, preview_color, (self.cell_size//2, self.cell_size//2), self.cell_size//3)
-                self.screen.blit(preview_surf, (x - self.cell_size//2, y - self.cell_size//2))
+                center = (self.cell_size // 2, self.cell_size // 2)
+                radius = self.cell_size // 3
+                
+                if self.go_board.current_player == 1:  # 黑棋预览（不变）
+                    preview_color = (0, 0, 0, 128)
+                    pygame.draw.circle(preview_surf, preview_color, center, radius)
+                else:  # 白棋预览，加黑色边框
+                    border_color = (0, 0, 0, 128)  # 半透明黑色边框
+                    inner_color = (255, 255, 255, 200)  # 较不透明的白色棋子
+                    
+                    # 先绘制黑色边框（略大）
+                    pygame.draw.circle(preview_surf, border_color, center, radius + 2)
+                    
+                    # 再绘制内圈白色
+                    pygame.draw.circle(preview_surf, inner_color, center, radius)
+                
+                # 绘制到主屏幕上
+                self.base_surface.blit(preview_surf, (x - self.cell_size // 2, y - self.cell_size // 2))
+
 
         if self.show_influence:
             influence = self.go_board.calculate_influence()
@@ -241,7 +279,7 @@ class GoGame:
                 bg_color = (0, 0, 0) if value > 0 else (255, 255, 255)
                 text = self.influence_font.render(str(value), True, text_color, bg_color)
                 text_rect = text.get_rect(center=(x, y))
-                self.screen.blit(text, text_rect)
+                self.base_surface.blit(text, text_rect)
 
         keys = pygame.key.get_pressed()
         if keys[pygame.K_TAB]:
@@ -253,29 +291,54 @@ class GoGame:
                 if self.go_board.board[r][c] == p and latest_by_coord.get((r, c)) == idx:
                     qualifying.append(idx)
             last_idx = max(qualifying) if qualifying else None
-            
+
             for idx, (r, c, p) in enumerate(self.go_board.move_order):
                 if self.go_board.board[r][c] == p and latest_by_coord.get((r, c)) == idx:
                     x = self.offset[0] + c * self.cell_size
                     y = self.offset[1] + r * self.cell_size
                     font = self.order_last_font if idx == last_idx else self.order_font
-                    text_color = (255, 0, 0) if idx == last_idx else ((255,255,255) if p ==1 else (0,0,0))
-                    order_text = font.render(str(idx+1), True, text_color)
-                    self.screen.blit(order_text, (x - 8, y - 10))
+                    text_color = (255, 0, 0) if idx == last_idx else ((255, 255, 255) if p == 1 else (0, 0, 0))
+                    order_text = font.render(str(idx + 1), True, text_color)
 
-        status_text = self.font.render(
-            f"黑方吃子: {self.go_board.captured['black']}  "
-            f"白方吃子: {self.go_board.captured['white']}  ",
-            True, (0, 0, 0))
-        self.screen.blit(status_text, (20, self.window_size[1]-80))
-        
-        hint_text = self.font.render(
-            "右键: 跳过一手 | 空格: 查看势力 | ESC: 退出 | Ctrl+Z: 悔棋 | Ctrl+Y: 撤销悔棋 | 按住 TAB: 查看顺序",
-            True, (0,0,0))
-        self.screen.blit(hint_text, (20, self.window_size[1]-40))
+                    # 获取文本尺寸并居中绘制
+                    text_rect = order_text.get_rect(center=(x, y))
+                    self.base_surface.blit(order_text, text_rect)
+                    
+            # 悬浮窗尺寸
+            hint_width = 600
+            hint_height = 100
+            hint_x = (self.base_surface.get_width() - hint_width) // 2
+            hint_y = self.base_surface.get_height() - hint_height - 20
+
+            # 背景窗体（半透明灰色）
+            hint_bg = pygame.Surface((hint_width, hint_height), pygame.SRCALPHA)
+            hint_bg.fill((50, 50, 50, 220))  # 深灰背景，略带透明
+
+            # 文本内容
+            hint_lines = [
+                f"黑方吃子: {self.go_board.captured['black']}    白方吃子: {self.go_board.captured['white']}",
+                "右键: 跳过一手    空格: 查看势力图    Esc: 退出",
+                "Ctrl+Z: 悔棋    Ctrl+Y: 撤销悔棋"
+            ]
+
+            for idx, line in enumerate(hint_lines):
+                text = self.font.render(line, True, (255, 255, 255))
+                text_rect = text.get_rect(midtop=(hint_width // 2, 10 + idx * 28))
+                hint_bg.blit(text, text_rect)
+
+            # 将悬浮窗绘制到主画布上
+            self.base_surface.blit(hint_bg, (hint_x, hint_y))
+
 
     def handle_click(self, pos):
-        nearest = self.find_nearest_point(pos)
+        # 将点击位置从窗口坐标转换回原始画布坐标
+        win_w, win_h = self.screen.get_size()
+        base_w, base_h = self.base_surface.get_size()
+        scale_x = base_w / win_w
+        scale_y = base_h / win_h
+        scaled_pos = (int(pos[0] * scale_x), int(pos[1] * scale_y))
+
+        nearest = self.find_nearest_point(scaled_pos)
         if not nearest:
             return False
         row, col = nearest
@@ -284,6 +347,7 @@ class GoGame:
             self.redo_stack = []
             return True
         return False
+
 
     def undo_move(self):
         if len(self.history) > 1:
@@ -298,10 +362,32 @@ class GoGame:
             self.go_board.set_snapshot(snapshot)
 
     def run(self):
+        bg_w, bg_h = self.bg_surface.get_size()
+        original_ratio = bg_w / bg_h
+        
         while self.running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
+                elif event.type == pygame.VIDEORESIZE:
+                    bg_w, bg_h = self.bg_surface.get_size()
+                    original_ratio = bg_w / bg_h
+
+                    # 用户调整的新尺寸
+                    new_w, new_h = event.size
+                    new_ratio = new_w / new_h
+
+                    # 保持宽高比
+                    if new_ratio > original_ratio:
+                        # 变宽了，限制宽度
+                        new_w = int(new_h * original_ratio)
+                    else:
+                        # 变高了，限制高度
+                        new_h = int(new_w / original_ratio)
+
+                    # 更新窗口大小
+                    self.window_size = (new_w, new_h)
+                    self.screen = pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:
                         self.handle_click(event.pos)
@@ -322,8 +408,36 @@ class GoGame:
                         self.undo_move()
                     elif event.key == pygame.K_y and (mods & pygame.KMOD_CTRL):
                         self.redo_move()
+                # --- ✅ 实时检查窗口大小并强制保持比例 ---
+                current_w, current_h = pygame.display.get_surface().get_size()
+                current_ratio = current_w / current_h
+
+                if abs(current_ratio - original_ratio) > 0.01:
+                    if current_ratio > original_ratio:
+                        # 过宽，限制宽度
+                        new_w = int(current_h * original_ratio)
+                        new_h = current_h
+                    else:
+                        # 过高，限制高度
+                        new_w = current_w
+                        new_h = int(current_w / original_ratio)
+
+                    self.window_size = (new_w, new_h)
+                    self.screen = pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
+
 
             self.draw_board()
+
+            # 获取当前窗口大小
+            win_w, win_h = self.screen.get_size()
+
+            # 将 base_surface 缩放到当前窗口大小
+            scaled_surface = pygame.transform.smoothscale(self.base_surface, (win_w, win_h))
+            self.screen.blit(scaled_surface, (0, 0))
+
+            pygame.display.flip()
+            self.clock.tick(30)
+
             pygame.display.flip()
             self.clock.tick(30)
         pygame.quit()
